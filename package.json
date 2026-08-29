@@ -1,0 +1,43 @@
+{
+  "name": "github-road",
+  "version": "1.0.0",
+  "description": "GitHub-Road: 大陆稳定访问 GitHub 官网的网络路径修复技能（hosts 直连 + 动态 IP 择优 + 30 分钟自动自愈，免代理、零费用）。A machine network-path fix skill (not agent-specific): hosts pin + rotating-IP selection (TLS + real-HTTP-200 dual gate) + scheduled 30-min self-heal. Runs in any agent or fully manual.",
+  "type": "module",
+  "main": "./index.js",
+  "exports": {
+    ".": "./index.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "cordis.patch.yml",
+    "skills",
+    "install.sh",
+    "README.md",
+    "LICENSE"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+ssh://git@github.com/iTrimut/GitHub-Road.git"
+  },
+  "keywords": [
+    "deepseek-harness",
+    "dsh-plugin",
+    "agent-skills",
+    "skill",
+    "github",
+    "hosts",
+    "network",
+    "mainland-china",
+    "gfw"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
