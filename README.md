@@ -99,6 +99,7 @@ schtasks /query /tn DSH-GitHubFix                           # 期望 Ready，Nex
 - **gist.github.com**：SNI 被运营商层阻断，**所有 IP 都连不上**，hosts 无法修复，需要代理。
 - **codeload.github.com**（下载源码压缩包）、**ssh github.com:22**（Git 推送）、**GitHub Desktop 安装包**：不在本方案覆盖范围。Git 推送被墙请用 SSH over 443（见 dsh-GitRoad）。
 - **候选 IP 列表**是手工维护的；GitHub 的 Azure 段偶尔变化，全部失效时脚本自动回退 DNS 并提示。可更新脚本中 `$githubCandidates`（用 `nslookup github.com` + 逐 IP 实测 HTTP 200）。
+- **与 hosts 管理类工具互斥**：若机器装有 Watt Toolkit / Steam++（本地代理加速把 github 指到 127.0.0.1 并持续重写 hosts），会与本方案互相覆盖。需先停用其加速或退出（一键处理：`files/quit-watt-and-fix.ps1`），详见 SKILL.md 排查表 #16。
 - 若运营商升级为"对 github.com 全量封锁"，本方案会如实报告失败并建议代理——**不承诺万无一失**。
 
 ---

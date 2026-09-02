@@ -1,6 +1,6 @@
 {
   "name": "github-road",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "GitHub-Road: 大陆稳定访问 GitHub 官网的网络路径修复技能（hosts 直连 + 动态 IP 择优 + 30 分钟自动自愈，免代理、零费用）。A machine network-path fix skill (not agent-specific): hosts pin + rotating-IP selection (TLS + real-HTTP-200 dual gate) + scheduled 30-min self-heal. Runs in any agent or fully manual.",
   "type": "module",
   "main": "./index.js",

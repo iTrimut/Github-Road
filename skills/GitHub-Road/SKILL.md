@@ -101,7 +101,7 @@ schtasks /query /tn DSH-GitHubFix
 | 13 | 开着代理/TUN 模式（Clash 等）仍打不开 | TUN/系统代理接管了流量，hosts 直连被绕过或冲突 | 用代理时不需要本方案；关掉代理后 hosts 生效。公司 VPN（如 aTrustAgent）会在 hosts 加自己的条目，不影响本方案的两行。若系统设置了 HTTPS_PROXY 环境变量，脚本的 curl 测试已用 `--noproxy "*"` 忽略代理，不会测到假结果 |
 | 14 | 手动改过 hosts 想还原 | — | 用 `%USERPROFILE%\hosts.backup-*`（脚本每次改前自动备份，时间戳命名，保留多份） |
 | 15 | 公司 VPN 带 TLS 检查（如 Sangfor aTrust） | 检查型代理可能改写 TLS 证书，脚本的证书校验会看到"假 github 证书" | 这种情况通常说明公司网关已接管流量，hosts 方案意义不大；与网管确认后再用本方案 |
-| 16 | GitHub 突然打不开，hosts 里出现 `# Steam++ Start`…`127.0.0.1 github.com`…`# Steam++ End` 整段 | **Watt Toolkit (Steam++)** 的本地代理加速把 github/steam/youtube 等指到 127.0.0.1（它监听 80/444，但不服务 HTTPS 的 443），并持续重写 hosts，与本技能自愈任务冲突（修了又被改回） | 退出 Watt Toolkit（任务管理器结束 `Steam++.Accelerator`/`Steam++`，或在其设置里停用对 github 的加速），再跑本技能修复；本脚本最终验证已改用**真实 hosts 路径**（不用 `--resolve` 绕过），冲突时会明确报"127.0.0.1 屏蔽行抢先生效" |
+| 16 | GitHub 突然打不开，hosts 里出现 `# Steam++ Start`…`127.0.0.1 github.com`…`# Steam++ End` 整段 | **Watt Toolkit (Steam++)** 的本地代理加速把 github/steam/youtube 等指到 127.0.0.1（它监听 80/444，但不服务 HTTPS 的 443），并持续重写 hosts，与本技能自愈任务冲突（修了又被改回） | 一键处理：双击 `files/quit-watt-and-fix.ps1`（退出 Watt + 清理 hosts + 重跑修复，需一次 UAC）；或手动退出 Watt Toolkit（任务管理器结束 `Steam++.Accelerator`/`Steam++`）后重跑修复；本脚本最终验证已改用**真实 hosts 路径**（不用 `--resolve` 绕过），冲突时会明确报"127.0.0.1 屏蔽行抢先生效" |
 
 ## 🔒 安全说明
 
@@ -153,5 +153,6 @@ schtasks /query /tn DSH-GitHubFix
 | `install-github-fix.ps1` | 一键安装 | 立即修复 + 注册计划任务（Register-ScheduledTask：允许电池、错过补跑、忽略并发、30 分钟运行时限；失败自动回退 schtasks）；可参数 `-TaskName`/`-Minutes` |
 | `fix-github-quiet.vbs` | 静默启动器 | 计划任务通过 wscript.exe 调用它（窗口样式 0），再启动 fix-github.ps1 -Quiet；**纯 ASCII**（wscript 按 ANSI 解析，别加中文注释） |
 | `uninstall-github-fix.ps1` | 卸载 | 删除计划任务（优先 Unregister-ScheduledTask），保留当前 hosts 条目 |
+| `quit-watt-and-fix.ps1` | Watt 冲突一键处理 | 退出 Watt Toolkit/Steam++ 进程 → 清理其 hosts 段 → 重跑修复（真实 hosts 路径验证）；需一次 UAC |
 
 所有脚本均为 **UTF-8 带 BOM**、纯 ASCII 引号、无弯引号，Windows PowerShell 5.1 直接可跑。
