@@ -120,44 +120,36 @@ function Get-HostsPin([string]$hostName) {
     return $null
 }
 
-function Update-HostsEntry([string]$hostName, [string]$newIp) {
+# 幂等管理：先移除该主机名下所有旧条目（含历史注释残留与 127.0.0.1 屏蔽行），再写一条干净的受管行。
+# 修复：旧版只追加不清理，在封锁轮换时会累积几十条重复注释行污染 hosts。
+function Set-HostsManagedEntry([string]$hostName, [string]$newIp) {
     if (-not (Test-Path $HOSTS)) { throw "找不到 hosts 文件: $HOSTS" }
     $bak = "$env:USERPROFILE\hosts.backup-$(Get-Date -Format yyyyMMdd-HHmmss)"
     Copy-Item $HOSTS $bak -Force
     Write-Ok "已备份旧 hosts 到 $bak"
-    # 只保留最近 20 份备份，避免每天 ~48 份堆积
     Get-ChildItem "$env:USERPROFILE\hosts.backup-*" -File -ErrorAction SilentlyContinue |
         Sort-Object LastWriteTime -Descending | Select-Object -Skip 20 |
         Remove-Item -Force -ErrorAction SilentlyContinue
 
-    $lines = [System.IO.File]::ReadAllLines($HOSTS)
-    $found = $false
-    for ($i = 0; $i -lt $lines.Count; $i++) {
-        if ($lines[$i] -match "(?i)^\s*(\d{1,3}\.){3}\d{1,3}\s+$hostName\s*$") {
-            $lines[$i] = "$newIp $hostName"
-            $found = $true
-        }
+    $kept = New-Object System.Collections.Generic.List[string]
+    foreach ($line in [System.IO.File]::ReadAllLines($HOSTS)) {
+        # 移除该主机名下任何旧条目：`[#] IP hostname [# 注释]`（含 127.0.0.1 屏蔽行、历史注释残留）
+        if ($line -match "(?i)^\s*#?\s*(\d{1,3}\.){3}\d{1,3}\s+$hostName(\s|#|$)") { continue }
+        # 移除 dsh 管理标记行（防重复累积）
+        if ($line -match '(?i)^\s*#\s*dsh github') { continue }
+        $kept.Add($line)
     }
-    if (-not $found) {
-        $lines += "# dsh github direct fix"
-        $lines += "$newIp $hostName"
+    if ($newIp) {
+        $kept.Add("# dsh github direct fix")
+        $kept.Add("$newIp $hostName")
     }
-    Write-HostsFile $lines
-    Write-Ok "hosts 已更新: $hostName -> $newIp"
+    Write-HostsFile ($kept.ToArray())
+    if ($newIp) { Write-Ok "hosts 已更新: $hostName -> $newIp（旧条目已清理）" }
+    else { Write-Fail "hosts 已移除 $hostName 条目，回退到 DNS 解析" }
 }
 
-# 全部候选都失败时：注释掉 hosts 条目、回退 DNS，而不是钉死一个坏 IP
-function Disable-HostsEntry([string]$hostName) {
-    if (-not (Test-Path $HOSTS)) { return }
-    $lines = [System.IO.File]::ReadAllLines($HOSTS)
-    for ($i = 0; $i -lt $lines.Count; $i++) {
-        if ($lines[$i] -match "(?i)^\s*(\d{1,3}\.){3}\d{1,3}\s+$hostName\s*$" -and -not $lines[$i].StartsWith('#')) {
-            $lines[$i] = "# $($lines[$i])  # dsh github: all candidates failed, fall back to DNS"
-        }
-    }
-    Write-HostsFile $lines
-    Write-Fail "已临时注释 hosts 中的 $hostName 条目，回退到 DNS 解析（下次运行会自动恢复最优 IP）"
-}
+function Update-HostsEntry([string]$hostName, [string]$newIp) { Set-HostsManagedEntry $hostName $newIp }
+function Disable-HostsEntry([string]$hostName) { Set-HostsManagedEntry $hostName $null }
 
 # ---------- 4. 主流程 ----------
 Log "fix-github start (pid $PID, quiet=$Quiet)"
@@ -238,31 +230,37 @@ if ($verifiedApi.Count -gt 0) {
     Disable-HostsEntry 'api.github.com'
 }
 
-# 4.3 刷新 DNS，实测验证；失败则依次尝试次优 IP 重写，全部失败回退 DNS 并退出非 0
-ipconfig /flushdns | Out-Null
-Start-Sleep -Milliseconds 500
+# 4.3 写入 pin 后做【真实 hosts 路径】最终验证。
+# 修复：旧版用 --resolve 绕过 hosts 直连 IP，即使 hosts 被 Steam++/Watt 等写成 127.0.0.1 也会误报 200。
 $finalOk = $false
 $code = '000'
+ipconfig /flushdns | Out-Null
+Start-Sleep -Milliseconds 500
+# 4.3.1 选一个可用 IP 写入 hosts（幂等：清理该域名旧条目后写一条 pin）
 foreach ($ip in ($verified | Sort-Object Ms | Select-Object -ExpandProperty Ip)) {
-    $code = & curl.exe -s -o NUL -w "%{http_code}" --noproxy "*" --connect-timeout 8 --max-time 15 --resolve "github.com:443:$ip" https://github.com 2>$null
-    Write-Step "  最终验证 $ip -> HTTP $code"
-    if ($code -eq '200') {
-        if ($ip -ne (Get-HostsPin 'github.com')) { Update-HostsEntry 'github.com' $ip }
-        $finalOk = $true
+    $probe = & curl.exe -s -o NUL -w "%{http_code}" --noproxy "*" --connect-timeout 8 --max-time 15 --resolve "github.com:443:$ip" https://github.com 2>$null
+    Write-Step "  候选直连 $ip -> HTTP $probe"
+    if ($probe -eq '200') {
+        Update-HostsEntry 'github.com' $ip
         break
     }
 }
-if ($finalOk) {
-    Write-Ok "验证通过：https://github.com 返回 HTTP 200 —— 可以正常访问了！"
+# 4.3.2 真实走 hosts 验证（不带 --resolve；若 hosts 有更早的 127.0.0.1 屏蔽行会在此失败）
+ipconfig /flushdns | Out-Null
+Start-Sleep -Milliseconds 800
+$code = & curl.exe -s -o NUL -w "%{http_code}" --noproxy "*" --connect-timeout 8 --max-time 20 https://github.com 2>$null
+if ($code -eq '200') {
+    Write-Ok "验证通过：github.com 经 hosts 真实返回 HTTP 200 —— 可以正常访问了！"
+    $finalOk = $true
 } else {
-    Write-Fail '最终验证全部失败 —— 已注释 hosts 条目回退 DNS，下次运行自动重试。'
-    Log 'fix-github: final verification failed for all IPs - disabled pin'
+    Write-Fail "真实 hosts 路径验证失败（HTTP $code）—— hosts 中可能有其它工具（如 Steam++/Watt Toolkit）写的 127.0.0.1 屏蔽行抢先生效，或当前网络不通。"
+    Log "fix-github: real-hosts verification failed http=$code"
     Disable-HostsEntry 'github.com'
     Wait-Exit
     Remove-Lock
     exit 1
 }
-# api.github.com 最终确认（失败不阻塞网页浏览，仅提示）
+# api.github.com 最终确认（真实 hosts 路径；失败不阻塞网页浏览，仅提示）
 $codeApiFinal = & curl.exe -s -o NUL -w "%{http_code}" --noproxy "*" --connect-timeout 8 --max-time 12 https://api.github.com 2>$null
 if ($codeApiFinal -eq '200') { Write-Ok "api.github.com 验证通过（HTTP 200）" }
 else { Write-Fail "api.github.com 验证失败（HTTP $codeApiFinal，一般不影响网页浏览，下次自动重试）" }
